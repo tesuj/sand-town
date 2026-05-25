@@ -1,0 +1,19 @@
+// Prisma schema for pvprospect.
+// Initial scaffold — concrete models (ProspectRun, ProspectSourceResult,
+// GeocodingCache, ProspectSettings) land in st-bxq per PRD §15.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Placeholder model so `prisma generate` and `prisma migrate dev` succeed
+// against an empty database. Replace in st-bxq.
+model HealthCheck {
+  id        Int      @id @default(autoincrement())
+  createdAt DateTime @default(now())
+}
