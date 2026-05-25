@@ -124,7 +124,7 @@ model ProspectSettings {
   defaultModuleType        ModuleType   @default(standard)
   defaultMountingType      MountingType @default(free)
   pvgisBaseUrl             String       @default("https://re.jrc.ec.europa.eu/api/v5_3")
-  pvwattsBaseUrl           String       @default("https://developer.nrel.gov/api/pvwatts/v8.json")
+  pvwattsBaseUrl           String       @default("https://developer.nlr.gov/api/pvwatts/v8.json")
   geocodingProvider        String       @default("nominatim")
   nominatimBaseUrl         String       @default("https://nominatim.openstreetmap.org")
   cacheTtlDays             Int          @default(30)

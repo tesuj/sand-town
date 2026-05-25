@@ -14,7 +14,8 @@ import type {
   MonthlyProduction,
 } from '@/lib/schemas';
 
-const DEFAULT_BASE_URL = 'https://developer.nrel.gov/api/pvwatts/v8.json';
+// NREL is migrating developer.nrel.gov → developer.nlr.gov (PRD §12.3 matches new domain).
+const DEFAULT_BASE_URL = 'https://developer.nlr.gov/api/pvwatts/v8.json';
 
 const MODULE_TYPE_TO_PVWATTS: Record<ModuleType, number> = {
   standard: 0,
