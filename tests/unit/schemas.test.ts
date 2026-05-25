@@ -5,6 +5,7 @@ import {
   SourceEstimate,
   ConsolidatedEstimate,
   ProspectRunRequest,
+  AnglesSource,
 } from '@/lib/schemas';
 
 describe('ProspectLocation', () => {
@@ -121,5 +122,26 @@ describe('ProspectRunRequest', () => {
     expect(parsed.azimuthDegrees).toBe(180);
     expect(parsed.moduleType).toBe('standard');
     expect(parsed.mountingType).toBe('free');
+    expect(parsed.autoAngles).toBe(true);
+  });
+
+  it('honors explicit autoAngles=false', () => {
+    const parsed = ProspectRunRequest.parse({
+      locationInput: 'x',
+      systemSizeKwp: 10,
+      autoAngles: false,
+    });
+    expect(parsed.autoAngles).toBe(false);
+  });
+});
+
+describe('AnglesSource enum', () => {
+  it('accepts the 3 known values', () => {
+    expect(AnglesSource.parse('manual')).toBe('manual');
+    expect(AnglesSource.parse('optimal_pvgis')).toBe('optimal_pvgis');
+    expect(AnglesSource.parse('heuristic')).toBe('heuristic');
+  });
+  it('rejects unknown values', () => {
+    expect(() => AnglesSource.parse('auto')).toThrow();
   });
 });

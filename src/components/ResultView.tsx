@@ -60,6 +60,7 @@ export function ResultView({ result }: ResultViewProps) {
       <AssumptionsSummary
         location={location}
         assumptions={assumptions}
+        anglesSource={result.anglesSource}
       />
 
       <details className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-3">
@@ -165,18 +166,21 @@ function SourceTable({ result }: { result: ProspectRunResponse }) {
 function AssumptionsSummary({
   location,
   assumptions,
+  anglesSource,
 }: {
   location: NonNullable<ProspectRunResponse['location']>;
   assumptions: NonNullable<ProspectRunResponse['assumptions']>;
+  anglesSource: ProspectRunResponse['anglesSource'];
 }) {
+  const angleBadge = anglesBadgeFor(anglesSource);
   return (
     <div>
       <h3 className="mb-3 text-sm font-semibold text-zinc-700">Assumptions</h3>
       <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
         <Row term="Location" desc={location.displayLabel ?? `${location.lat}, ${location.lon}`} />
         <Row term="System size" desc={`${assumptions.systemSizeKwp} kWp`} />
-        <Row term="Tilt" desc={`${assumptions.tiltDegrees}°`} />
-        <Row term="Azimuth (UI)" desc={`${assumptions.uiAzimuthDegrees}°`} />
+        <Row term="Tilt" desc={`${assumptions.tiltDegrees}°`} badge={angleBadge} />
+        <Row term="Azimuth (UI)" desc={`${assumptions.uiAzimuthDegrees}°`} badge={angleBadge} />
         <Row term="Losses" desc={`${assumptions.lossPercent}%`} />
         <Row term="Module" desc={assumptions.moduleType} />
         <Row term="Mounting" desc={assumptions.mountingType} />
@@ -185,11 +189,44 @@ function AssumptionsSummary({
   );
 }
 
-function Row({ term, desc }: { term: string; desc: string }) {
+function anglesBadgeFor(
+  source: ProspectRunResponse['anglesSource'],
+): { label: string; className: string } | null {
+  if (!source || source === 'manual') return null;
+  if (source === 'optimal_pvgis') {
+    return {
+      label: 'Auto · PVGIS',
+      className: 'bg-emerald-100 text-emerald-800',
+    };
+  }
+  return {
+    label: 'Auto · heuristic fallback',
+    className: 'bg-amber-100 text-amber-800',
+  };
+}
+
+function Row({
+  term,
+  desc,
+  badge,
+}: {
+  term: string;
+  desc: string;
+  badge?: { label: string; className: string } | null;
+}) {
   return (
     <div className="flex justify-between gap-2 border-b border-zinc-100 py-1">
       <dt className="text-zinc-500">{term}</dt>
-      <dd className="text-zinc-900">{desc}</dd>
+      <dd className="flex items-center gap-2 text-zinc-900">
+        {desc}
+        {badge ? (
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${badge.className}`}
+          >
+            {badge.label}
+          </span>
+        ) : null}
+      </dd>
     </div>
   );
 }

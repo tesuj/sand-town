@@ -15,6 +15,8 @@ export type PvgisAdapterOptions = {
   fetcher?: typeof fetch;
   /** Hard cap on the request, including DNS/TLS. */
   timeoutMs?: number;
+  /** When true, omit angle/aspect and ask PVGIS to pick optimal slope+azimuth. */
+  useOptimalAngles?: boolean;
 };
 
 /**
@@ -30,12 +32,47 @@ export function uiAzimuthToPvgisAspect(uiAzimuth: number): number {
   return aspect;
 }
 
+/**
+ * Inverse of uiAzimuthToPvgisAspect. PVGIS aspect (-180..180) → UI azimuth (0..360).
+ * PVGIS 0 → UI 180 (south); PVGIS -90 → UI 90 (east); PVGIS 90 → UI 270 (west);
+ * PVGIS ±180 → UI 0 / 360 (north — normalized to 0).
+ */
+export function pvgisAspectToUiAzimuth(pvgisAspect: number): number {
+  let ui = pvgisAspect + 180;
+  if (ui < 0) ui += 360;
+  if (ui >= 360) ui -= 360;
+  return ui;
+}
+
 const PvgisMonthly = z.object({
   month: z.number(),
   E_m: z.number(),
 });
 
+const PvgisOptimalAngle = z
+  .object({
+    value: z.number(),
+    optimal: z.boolean().optional(),
+  })
+  .optional();
+
+const PvgisFixedMounting = z
+  .object({
+    slope: PvgisOptimalAngle,
+    azimuth: PvgisOptimalAngle,
+  })
+  .optional();
+
 const PvgisResponseSchema = z.object({
+  inputs: z
+    .object({
+      mounting_system: z
+        .object({
+          fixed: PvgisFixedMounting,
+        })
+        .optional(),
+    })
+    .optional(),
   outputs: z.object({
     monthly: z.object({
       fixed: z.array(PvgisMonthly),
@@ -48,6 +85,12 @@ const PvgisResponseSchema = z.object({
   }),
 });
 
+export type PvgisOptimalAnglesPicked = {
+  pvgisSlopeDegrees: number;
+  pvgisAspectDegrees: number;
+  source: 'pvgis';
+};
+
 export async function fetchPvgisEstimate(
   args: {
     lat: number;
@@ -59,6 +102,7 @@ export async function fetchPvgisEstimate(
   const baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, '');
   const doFetch = options.fetcher ?? fetch;
   const timeoutMs = options.timeoutMs ?? 15_000;
+  const useOptimal = options.useOptimalAngles === true;
 
   const aspect = uiAzimuthToPvgisAspect(args.assumptions.uiAzimuthDegrees);
   const params = new URLSearchParams({
@@ -66,11 +110,15 @@ export async function fetchPvgisEstimate(
     lon: String(args.lon),
     peakpower: String(args.assumptions.systemSizeKwp),
     loss: String(args.assumptions.lossPercent),
-    angle: String(args.assumptions.tiltDegrees),
-    aspect: String(aspect),
     outputformat: 'json',
     browser: '0',
   });
+  if (useOptimal) {
+    params.set('optimalangles', '1');
+  } else {
+    params.set('angle', String(args.assumptions.tiltDegrees));
+    params.set('aspect', String(aspect));
+  }
 
   const url = `${baseUrl}/PVcalc?${params.toString()}`;
   const controller = new AbortController();
@@ -110,6 +158,17 @@ export async function fetchPvgisEstimate(
       }));
 
     const annualKwh = parsed.data.outputs.totals.fixed.E_y;
+
+    const fixed = parsed.data.inputs?.mounting_system?.fixed;
+    const optimal: PvgisOptimalAnglesPicked | null =
+      useOptimal && fixed?.slope?.value !== undefined && fixed?.azimuth?.value !== undefined
+        ? {
+            pvgisSlopeDegrees: fixed.slope.value,
+            pvgisAspectDegrees: fixed.azimuth.value,
+            source: 'pvgis',
+          }
+        : null;
+
     return {
       source: 'pvgis',
       status: 'success',
@@ -118,7 +177,11 @@ export async function fetchPvgisEstimate(
         args.assumptions.systemSizeKwp > 0 ? annualKwh / args.assumptions.systemSizeKwp : null,
       monthly,
       warnings: [],
-      metadata: { endpoint: `${baseUrl}/PVcalc`, aspect },
+      metadata: {
+        endpoint: `${baseUrl}/PVcalc`,
+        aspect: useOptimal ? null : aspect,
+        optimal,
+      },
     };
   } catch (err) {
     if (isAbortError(err)) {

@@ -34,11 +34,24 @@ export function ProspectForm() {
   const [loc, dispatch] = useReducer(locationReducer, initialLocationState);
   const [systemSize, setSystemSize] = useState(10);
   const [expert, setExpert] = useState<ExpertAssumptions>(DEFAULT_EXPERT);
+  const [autoAngles, setAutoAngles] = useState(true);
   const [geolocating, setGeolocating] = useState(false);
   const [state, setState] = useState<FormState>({ kind: 'idle' });
 
   const calculating = state.kind === 'calculating';
   const disabled = calculating || geolocating;
+
+  /** When user edits tilt/azimuth manually, switch off auto so their values win. */
+  const onExpertChange = (next: ExpertAssumptions) => {
+    if (
+      autoAngles &&
+      (next.tiltDegrees !== expert.tiltDegrees ||
+        next.azimuthDegrees !== expert.azimuthDegrees)
+    ) {
+      setAutoAngles(false);
+    }
+    setExpert(next);
+  };
 
   const onCalculate = async () => {
     if (systemSize <= 0) {
@@ -56,6 +69,7 @@ export function ProspectForm() {
         mountingType: expert.mountingType,
         tiltDegrees: expert.tiltDegrees,
         azimuthDegrees: expert.azimuthDegrees,
+        autoAngles,
       };
       // PRD §9.5.1 rule 5: use confirmedLocation directly when not dirty.
       if (!loc.dirty && loc.confirmedLocation) {
@@ -191,7 +205,21 @@ export function ProspectForm() {
             {calculating ? 'Calculating…' : 'Calculate'}
           </button>
         </div>
-        <ExpertMode value={expert} onChange={setExpert} />
+        <label className="flex items-start gap-2 text-sm text-zinc-700">
+          <input
+            type="checkbox"
+            checked={autoAngles}
+            onChange={(e) => setAutoAngles(e.currentTarget.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+          />
+          <span>
+            Auto-pick optimal tilt and azimuth for this location
+            <span className="ml-1 text-xs text-zinc-500">
+              (PVGIS picks based on local solar geometry; uncheck to use Expert values)
+            </span>
+          </span>
+        </label>
+        <ExpertMode value={expert} onChange={onExpertChange} />
       </section>
 
       {state.kind === 'error' ? (

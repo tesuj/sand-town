@@ -97,6 +97,9 @@ export type ConsolidatedEstimate = z.infer<typeof ConsolidatedEstimate>;
 /* Public API DTOs                                                             */
 /* -------------------------------------------------------------------------- */
 
+export const AnglesSource = z.enum(['manual', 'optimal_pvgis', 'heuristic']);
+export type AnglesSource = z.infer<typeof AnglesSource>;
+
 export const ProspectRunRequest = z.object({
   locationInput: z.string().min(1),
   lat: z.number().min(-90).max(90).optional(),
@@ -108,6 +111,7 @@ export const ProspectRunRequest = z.object({
   mountingType: MountingType.default('free'),
   tiltDegrees: z.number().min(0).max(90).default(35),
   azimuthDegrees: z.number().min(0).max(360).default(180),
+  autoAngles: z.boolean().default(true),
 });
 export type ProspectRunRequest = z.infer<typeof ProspectRunRequest>;
 
@@ -125,6 +129,7 @@ export const ProspectRunResponse = z.object({
   status: ProspectRunStatus,
   location: ProspectLocation.nullable(),
   assumptions: ProspectAssumptions.nullable(),
+  anglesSource: AnglesSource.nullable(),
   sources: z.array(SourceEstimate),
   consolidated: ConsolidatedEstimate.nullable(),
   candidates: z.array(ProspectLocation).optional(),

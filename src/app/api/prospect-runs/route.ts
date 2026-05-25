@@ -6,7 +6,16 @@
  *   2. Resolve location: coordinates → use directly; otherwise → Nominatim.
  *      - Ambiguous Nominatim result (>1 candidate) → returns
  *        `needs_location_choice` with candidates, no provider calls.
- *   3. Call PVGIS + PVWatts in parallel.
+ *   3. Pick angles:
+ *        autoAngles=false → use request's tilt/azimuth, anglesSource='manual',
+ *                           parallel PVGIS+PVWatts.
+ *        autoAngles=true  → serial PVGIS-with-optimalangles=1 first; if it
+ *                           returns picked angles → convert + reuse for PVWatts,
+ *                           anglesSource='optimal_pvgis'. If PVGIS failed →
+ *                           heuristic by latitude, anglesSource='heuristic',
+ *                           PVWatts with heuristic angles. PVGIS estimate is
+ *                           reused even on heuristic fallback if it succeeded
+ *                           (rare: succeeded but no optimal block).
  *   4. Consolidate per §14.2.
  *   5. Persist ProspectRun + ProspectSourceResult.
  *   6. Respond per §12.1 status taxonomy.
@@ -25,15 +34,19 @@ import { prisma } from '@/lib/prisma';
 import { createPrismaGeocodingCache } from '@/lib/geocodingCache';
 import {
   fetchPvgisEstimate,
+  pvgisAspectToUiAzimuth,
   uiAzimuthToPvgisAspect,
+  type PvgisOptimalAnglesPicked,
 } from '@/lib/providers/pvgis';
 import { fetchPvwattsEstimate } from '@/lib/providers/pvwatts';
 import {
   searchNominatim,
   nominatimResultToLocation,
 } from '@/lib/providers/nominatim';
+import { latitudeBasedAngles } from '@/lib/optimalAngles';
 import {
   ProspectRunRequest,
+  type AnglesSource,
   type ProspectAssumptions,
   type ProspectLocation,
   type ProspectRunResponse,
@@ -51,6 +64,7 @@ export async function POST(req: NextRequest): Promise<NextResponse<ProspectRunRe
       status: 'failed',
       location: null,
       assumptions: null,
+      anglesSource: null,
       sources: [],
       consolidated: null,
       warnings: [
@@ -83,7 +97,8 @@ async function handleProspectRun(
     return invalidLocationResponse('Unknown validation error');
   }
 
-  const assumptions: ProspectAssumptions = {
+  // Initial assumptions — angles get rewritten when autoAngles=true.
+  const initialAssumptions: ProspectAssumptions = {
     systemSizeKwp: request.systemSizeKwp,
     lossPercent: request.lossPercent,
     tiltDegrees: request.tiltDegrees,
@@ -136,6 +151,7 @@ async function handleProspectRun(
           status: 'provider_error',
           location: null,
           assumptions: null,
+          anglesSource: null,
           sources: [],
           consolidated: null,
           warnings: [`Geocoding ${outcome.status}: ${outcome.message}`],
@@ -149,6 +165,7 @@ async function handleProspectRun(
           status: 'invalid_location',
           location: null,
           assumptions: null,
+          anglesSource: null,
           sources: [],
           consolidated: null,
           warnings: ['No geocoding results for query'],
@@ -158,6 +175,7 @@ async function handleProspectRun(
           status: 'needs_location_choice',
           location: null,
           assumptions: null,
+          anglesSource: null,
           sources: [],
           consolidated: null,
           warnings: [],
@@ -171,22 +189,63 @@ async function handleProspectRun(
     }
   }
 
-  // ─── Step 3: call providers in parallel ────────────────────────────────
-  const [pvgis, pvwatts] = await Promise.all([
-    fetchPvgisEstimate({ lat: location.lat, lon: location.lon, assumptions }, {
-      baseUrl: env.PVGIS_BASE_URL,
-    }),
-    fetchPvwattsEstimate({ lat: location.lat, lon: location.lon, assumptions }, {
-      apiKey: env.PVWATTS_API_KEY ?? '',
-    }),
-  ]);
+  // ─── Step 3: call providers, choosing angles based on autoAngles flag ──
+  let pvgis: SourceEstimate;
+  let pvwatts: SourceEstimate;
+  let assumptions: ProspectAssumptions = initialAssumptions;
+  let anglesSource: AnglesSource = 'manual';
+  const warnings: string[] = [];
+
+  if (!request.autoAngles) {
+    [pvgis, pvwatts] = await Promise.all([
+      fetchPvgisEstimate({ lat: location.lat, lon: location.lon, assumptions }, {
+        baseUrl: env.PVGIS_BASE_URL,
+      }),
+      fetchPvwattsEstimate({ lat: location.lat, lon: location.lon, assumptions }, {
+        apiKey: env.PVWATTS_API_KEY ?? '',
+      }),
+    ]);
+  } else {
+    // Serial chain: ask PVGIS to pick optimal angles, then reuse for PVWatts.
+    pvgis = await fetchPvgisEstimate(
+      { lat: location.lat, lon: location.lon, assumptions },
+      { baseUrl: env.PVGIS_BASE_URL, useOptimalAngles: true },
+    );
+
+    const picked = (pvgis.metadata as { optimal?: PvgisOptimalAnglesPicked | null } | undefined)?.optimal;
+    if (pvgis.status === 'success' && picked) {
+      assumptions = {
+        ...assumptions,
+        tiltDegrees: picked.pvgisSlopeDegrees,
+        uiAzimuthDegrees: pvgisAspectToUiAzimuth(picked.pvgisAspectDegrees),
+      };
+      anglesSource = 'optimal_pvgis';
+    } else {
+      // PVGIS unavailable or returned no picked angles → heuristic.
+      const heuristic = latitudeBasedAngles(location.lat);
+      assumptions = {
+        ...assumptions,
+        tiltDegrees: heuristic.tiltDegrees,
+        uiAzimuthDegrees: heuristic.uiAzimuthDegrees,
+      };
+      anglesSource = 'heuristic';
+      warnings.push(
+        `PVGIS did not return optimal angles; using latitude-based heuristic (tilt=${heuristic.tiltDegrees}°, azimuth=${heuristic.uiAzimuthDegrees}°).`,
+      );
+    }
+
+    pvwatts = await fetchPvwattsEstimate(
+      { lat: location.lat, lon: location.lon, assumptions },
+      { apiKey: env.PVWATTS_API_KEY ?? '' },
+    );
+  }
 
   const sources: SourceEstimate[] = [pvgis, pvwatts];
   const consolidated = consolidate(sources);
 
   // ─── Step 4: persist (best-effort; never block response) ───────────────
   try {
-    await persistProspectRun(request, location, assumptions, sources, consolidated);
+    await persistProspectRun(request, location, assumptions, anglesSource, sources, consolidated);
   } catch (err) {
     console.error('persistProspectRun failed', err);
   }
@@ -202,9 +261,10 @@ async function handleProspectRun(
     status: runStatus,
     location,
     assumptions,
+    anglesSource,
     sources,
     consolidated,
-    warnings: sources.flatMap((s) => s.warnings),
+    warnings: [...warnings, ...sources.flatMap((s) => s.warnings)],
   });
 }
 
@@ -212,6 +272,7 @@ async function persistProspectRun(
   request: ProspectRunRequest,
   location: ProspectLocation,
   assumptions: ProspectAssumptions,
+  anglesSource: AnglesSource,
   sources: SourceEstimate[],
   consolidated: ReturnType<typeof consolidate>,
 ) {
@@ -237,6 +298,7 @@ async function persistProspectRun(
       pvgisAspectDegrees: aspect,
       moduleType: assumptions.moduleType,
       mountingType: assumptions.mountingType,
+      anglesSource,
       status,
       annualKwh: consolidated.annualKwh,
       annualKwhPerKwp: consolidated.annualKwhPerKwp,
@@ -275,6 +337,7 @@ function invalidLocationResponse(message: string): NextResponse<ProspectRunRespo
     status: 'invalid_location',
     location: null,
     assumptions: null,
+    anglesSource: null,
     sources: [],
     consolidated: null,
     warnings: [message],

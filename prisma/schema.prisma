@@ -52,6 +52,12 @@ enum MountingType {
   roof
 }
 
+enum AnglesSource {
+  manual
+  optimal_pvgis
+  heuristic
+}
+
 /// One end-to-end prospect calculation: location + assumptions + result.
 model ProspectRun {
   id                    String             @id @default(cuid())
@@ -69,6 +75,7 @@ model ProspectRun {
   pvgisAspectDegrees    Float
   moduleType            ModuleType
   mountingType          MountingType
+  anglesSource          AnglesSource      @default(manual)
   status                ProspectRunStatus
   annualKwh             Float?
   annualKwhPerKwp       Float?

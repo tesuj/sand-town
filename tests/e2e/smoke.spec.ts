@@ -29,6 +29,7 @@ const successResponse = {
     moduleType: 'standard',
     mountingType: 'free',
   },
+  anglesSource: 'manual',
   sources: [
     {
       source: 'pvgis',
@@ -76,6 +77,7 @@ const needsChoiceResponse = {
   status: 'needs_location_choice',
   location: null,
   assumptions: null,
+  anglesSource: null,
   sources: [],
   consolidated: null,
   warnings: [],
@@ -123,7 +125,7 @@ test.beforeEach(async ({ page }) => {
 test('path 1: paste coordinates → Calculate', async ({ page }) => {
   await mockApi(page, successResponse);
 
-  await page.getByLabel('Location').fill('38.7223, -9.1393');
+  await page.getByRole('textbox', { name: 'Location' }).fill('38.7223, -9.1393');
   await page.getByRole('button', { name: 'Calculate' }).click();
 
   await expect(page.getByText('Estimated annual production')).toBeVisible();
@@ -155,7 +157,7 @@ test('path 2: typed address → Nominatim ambiguity → pick candidate → Calcu
     });
   });
 
-  await page.getByLabel('Location').fill('Lisbon');
+  await page.getByRole('textbox', { name: 'Location' }).fill('Lisbon');
   await page.getByRole('button', { name: 'Calculate' }).click();
 
   await expect(page.getByText('Choose location')).toBeVisible();
@@ -179,7 +181,7 @@ test('path 3: map click confirms location → Calculate', async ({ page }) => {
   await map.click({ position: { x: 200, y: 120 } });
 
   // Wait for confirmed coordinates to appear in the input (canonical format).
-  const locationInput = page.getByLabel('Location');
+  const locationInput = page.getByRole('textbox', { name: 'Location' });
   await expect(locationInput).toHaveValue(/^-?\d+\.\d{6}, -?\d+\.\d{6}$/);
 
   await page.getByRole('button', { name: 'Calculate' }).click();
@@ -195,8 +197,65 @@ test('path 4: browser geolocation → Calculate', async ({ page, context }) => {
 
   await page.getByRole('button', { name: 'Find my location' }).click();
 
-  await expect(page.getByLabel('Location')).toHaveValue('50.228232, 29.452135');
+  await expect(page.getByRole('textbox', { name: 'Location' })).toHaveValue('50.228232, 29.452135');
 
   await page.getByRole('button', { name: 'Calculate' }).click();
   await expect(page.getByText('Estimated annual production')).toBeVisible();
+});
+
+test('auto-angles: PVGIS optimal_pvgis badge appears next to tilt/azimuth', async ({ page }) => {
+  await mockApi(page, {
+    ...successResponse,
+    anglesSource: 'optimal_pvgis',
+    assumptions: {
+      ...successResponse.assumptions,
+      tiltDegrees: 33,
+      uiAzimuthDegrees: 184,
+    },
+  });
+
+  // Default state: autoAngles checkbox checked.
+  const autoCheckbox = page.getByRole('checkbox', {
+    name: /Auto-pick optimal tilt and azimuth/,
+  });
+  await expect(autoCheckbox).toBeChecked();
+
+  await page.getByRole('textbox', { name: 'Location' }).fill('38.7223, -9.1393');
+  await page.getByRole('button', { name: 'Calculate' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Assumptions' })).toBeVisible();
+  // Auto · PVGIS badge appears at least once (next to tilt and/or azimuth).
+  await expect(page.getByText('Auto · PVGIS').first()).toBeVisible();
+  // And the picked values reach the table.
+  await expect(page.getByText('33°').first()).toBeVisible();
+  await expect(page.getByText('184°').first()).toBeVisible();
+});
+
+test('manual override: editing tilt in Expert mode auto-unchecks autoAngles', async ({ page }) => {
+  await mockApi(page, {
+    ...successResponse,
+    anglesSource: 'manual',
+    assumptions: { ...successResponse.assumptions, tiltDegrees: 25 },
+  });
+
+  const autoCheckbox = page.getByRole('checkbox', {
+    name: /Auto-pick optimal tilt and azimuth/,
+  });
+  await expect(autoCheckbox).toBeChecked();
+
+  // Open Expert mode and edit tilt.
+  await page.getByText('Expert mode').click();
+  const tiltInput = page.getByLabel('Tilt °');
+  await tiltInput.fill('25');
+
+  // The interlock kicks in: autoAngles is now off.
+  await expect(autoCheckbox).not.toBeChecked();
+
+  await page.getByRole('textbox', { name: 'Location' }).fill('38.7223, -9.1393');
+  await page.getByRole('button', { name: 'Calculate' }).click();
+
+  await expect(page.getByRole('heading', { name: 'Assumptions' })).toBeVisible();
+  // Manual mode → no Auto badge for tilt/azimuth row.
+  await expect(page.getByText('Auto · PVGIS')).toHaveCount(0);
+  await expect(page.getByText('25°').first()).toBeVisible();
 });
