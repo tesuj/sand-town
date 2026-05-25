@@ -47,3 +47,9 @@ next-env.d.ts
 
 # prisma
 /prisma/migrations/dev.db*
+
+# Gas Town agent runtime (per-worktree state, never committed)
+.beads/
+.runtime/
+.claude/
+AGENTS.md
