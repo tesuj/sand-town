@@ -43,6 +43,26 @@ import {
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest): Promise<NextResponse<ProspectRunResponse>> {
+  try {
+    return await handleProspectRun(req);
+  } catch (err) {
+    console.error('unhandled prospect-run error', err);
+    return jsonResponse({
+      status: 'failed',
+      location: null,
+      assumptions: null,
+      sources: [],
+      consolidated: null,
+      warnings: [
+        `Internal error: ${err instanceof Error ? err.message : 'unknown'}`,
+      ],
+    });
+  }
+}
+
+async function handleProspectRun(
+  req: NextRequest,
+): Promise<NextResponse<ProspectRunResponse>> {
   const env = getEnv();
   let raw: unknown;
   try {

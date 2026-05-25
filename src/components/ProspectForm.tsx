@@ -74,7 +74,25 @@ export function ProspectForm() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = (await response.json()) as ProspectRunResponse;
+
+      const text = await response.text();
+      let data: ProspectRunResponse;
+      try {
+        data = text ? (JSON.parse(text) as ProspectRunResponse) : (null as never);
+      } catch {
+        setState({
+          kind: 'error',
+          message: `Server returned an unexpected response (HTTP ${response.status}). Please try again — if the problem persists, contact support.`,
+        });
+        return;
+      }
+      if (!data) {
+        setState({
+          kind: 'error',
+          message: `Server returned an empty response (HTTP ${response.status}). Please try again.`,
+        });
+        return;
+      }
 
       if (data.status === 'needs_location_choice') {
         setState({ kind: 'needs_choice', candidates: data.candidates ?? [] });

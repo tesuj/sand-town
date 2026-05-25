@@ -14,52 +14,62 @@ export function createPrismaGeocodingCache(opts: { ttlDays?: number } = {}): Nom
 
   return {
     async get(key: string) {
-      const [normalizedQuery, acceptLanguage] = key.split('::');
-      if (!normalizedQuery) return null;
-      const now = new Date();
-      const hit = await prisma.geocodingCache.findFirst({
-        where: {
-          provider: 'nominatim',
-          normalizedQuery,
-          acceptLanguage: acceptLanguage ?? 'en',
-          expiresAt: { gt: now },
-        },
-      });
-      if (!hit) return null;
-      // Best-effort lastUsedAt bump; never block the call path on failure.
-      prisma.geocodingCache
-        .update({ where: { id: hit.id }, data: { lastUsedAt: now } })
-        .catch(() => undefined);
-      return hit.resultJson as unknown as NominatimResult[];
-    },
-
-    async set(key: string, value: NominatimResult[]) {
-      const [normalizedQuery, acceptLanguage] = key.split('::');
-      if (!normalizedQuery) return;
-      const now = new Date();
-      const expiresAt = new Date(now.getTime() + ttlMs);
-      await prisma.geocodingCache.upsert({
-        where: {
-          provider_normalizedQuery_acceptLanguage: {
+      try {
+        const [normalizedQuery, acceptLanguage] = key.split('::');
+        if (!normalizedQuery) return null;
+        const now = new Date();
+        const hit = await prisma.geocodingCache.findFirst({
+          where: {
             provider: 'nominatim',
             normalizedQuery,
             acceptLanguage: acceptLanguage ?? 'en',
+            expiresAt: { gt: now },
           },
-        },
-        create: {
-          provider: 'nominatim',
-          normalizedQuery,
-          acceptLanguage: acceptLanguage ?? 'en',
-          resultJson: value as unknown as object,
-          lastUsedAt: now,
-          expiresAt,
-        },
-        update: {
-          resultJson: value as unknown as object,
-          lastUsedAt: now,
-          expiresAt,
-        },
-      });
+        });
+        if (!hit) return null;
+        prisma.geocodingCache
+          .update({ where: { id: hit.id }, data: { lastUsedAt: now } })
+          .catch(() => undefined);
+        return hit.resultJson as unknown as NominatimResult[];
+      } catch (err) {
+        // Cache failures degrade to cache-miss; the upstream Nominatim call will run.
+        console.warn('geocoding cache get failed (degraded to miss):', err);
+        return null;
+      }
+    },
+
+    async set(key: string, value: NominatimResult[]) {
+      try {
+        const [normalizedQuery, acceptLanguage] = key.split('::');
+        if (!normalizedQuery) return;
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + ttlMs);
+        await prisma.geocodingCache.upsert({
+          where: {
+            provider_normalizedQuery_acceptLanguage: {
+              provider: 'nominatim',
+              normalizedQuery,
+              acceptLanguage: acceptLanguage ?? 'en',
+            },
+          },
+          create: {
+            provider: 'nominatim',
+            normalizedQuery,
+            acceptLanguage: acceptLanguage ?? 'en',
+            resultJson: value as unknown as object,
+            lastUsedAt: now,
+            expiresAt,
+          },
+          update: {
+            resultJson: value as unknown as object,
+            lastUsedAt: now,
+            expiresAt,
+          },
+        });
+      } catch (err) {
+        // Cache write failures are silently dropped — the response is already returned.
+        console.warn('geocoding cache set failed (ignored):', err);
+      }
     },
   };
 }

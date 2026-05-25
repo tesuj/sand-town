@@ -10,52 +10,68 @@ export type MonthlyChartProps = {
 };
 
 /**
- * Per PRD §13.3: grouped monthly columns showing PVGIS + PVWatts side-by-side
- * with a thin horizontal tick for the recommended average. Pure SVG, no chart
- * library — keeps bundle small and avoids "stacked = sum" semantics confusion.
+ * Per PRD §13.3 + user feedback: one bar per month (12 bars total), stacked.
+ *   - Bottom segment = min(PVGIS, PVWatts) — the value both providers agree on at least.
+ *   - Top segment = |PVGIS − PVWatts| — the spread between them.
+ *
+ * This avoids the misleading "PVGIS + PVWatts = total production" reading
+ * because the upper segment is explicitly the *difference*, not a second value.
+ * No average line — the spread itself communicates uncertainty.
  */
-export function MonthlyChart({ sources, consolidated }: MonthlyChartProps) {
+export function MonthlyChart({ sources, consolidated: _consolidated }: MonthlyChartProps) {
+  void _consolidated; // intentionally unused — kept in props for future extensions
   const pvgis = sources.find((s) => s.source === 'pvgis');
   const pvwatts = sources.find((s) => s.source === 'pvwatts');
 
   const monthData = Array.from({ length: 12 }, (_, i) => {
     const month = i + 1;
+    const gisKwh = pvgis?.monthly.find((m) => m.month === month)?.kwh ?? null;
+    const wattsKwh = pvwatts?.monthly.find((m) => m.month === month)?.kwh ?? null;
+    const both = [gisKwh, wattsKwh].filter((v): v is number => v !== null);
+    if (both.length === 0) {
+      return { label: MONTHS[i], pvgis: gisKwh, pvwatts: wattsKwh, lower: null, delta: null };
+    }
+    const lower = Math.min(...both);
+    const upper = Math.max(...both);
     return {
       label: MONTHS[i],
-      pvgis: pvgis?.monthly.find((m) => m.month === month)?.kwh ?? null,
-      pvwatts: pvwatts?.monthly.find((m) => m.month === month)?.kwh ?? null,
-      avg: consolidated.monthly.find((m) => m.month === month)?.kwh ?? null,
+      pvgis: gisKwh,
+      pvwatts: wattsKwh,
+      lower,
+      delta: upper - lower,
     };
   });
 
   const max =
     Math.max(
-      ...monthData.flatMap((d) => [d.pvgis, d.pvwatts, d.avg].filter((v): v is number => v !== null)),
+      ...monthData
+        .map((d) => (d.lower !== null && d.delta !== null ? d.lower + d.delta : 0))
+        .filter((v) => v > 0),
       1,
     ) * 1.1;
 
   const width = 720;
   const height = 240;
-  const padL = 40;
+  const padL = 44;
   const padR = 16;
   const padT = 16;
   const padB = 36;
   const chartW = width - padL - padR;
   const chartH = height - padT - padB;
   const slot = chartW / 12;
-  const barW = (slot - 8) / 2;
+  const barW = Math.min(slot * 0.62, 38);
 
   const y = (v: number) => padT + chartH - (v / max) * chartH;
+  const h = (v: number) => (v / max) * chartH;
 
   return (
     <div className="overflow-x-auto">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label="Monthly production: PVGIS vs PVWatts with average overlay"
+        aria-label="Monthly production: shared baseline plus PVGIS-vs-PVWatts spread"
         className="w-full min-w-[640px]"
       >
-        {/* y gridlines */}
         {[0.25, 0.5, 0.75, 1].map((t) => (
           <g key={t}>
             <line
@@ -74,45 +90,55 @@ export function MonthlyChart({ sources, consolidated }: MonthlyChartProps) {
 
         {monthData.map((d, idx) => {
           const slotX = padL + idx * slot;
-          const xPvgis = slotX + (slot - 2 * barW - 4) / 2;
-          const xPvwatts = xPvgis + barW + 4;
+          const barX = slotX + (slot - barW) / 2;
+          if (d.lower === null || d.delta === null) {
+            return (
+              <text
+                key={idx}
+                x={slotX + slot / 2}
+                y={height - padB + 14}
+                textAnchor="middle"
+                fontSize="11"
+                fill="#52525b"
+              >
+                {d.label}
+              </text>
+            );
+          }
+          const lowerH = h(d.lower);
+          const deltaH = h(d.delta);
+          const lowerY = padT + chartH - lowerH;
+          const deltaY = lowerY - deltaH;
+          const tooltip = `${d.label}: PVGIS ${
+            d.pvgis !== null ? Math.round(d.pvgis).toLocaleString() : '—'
+          } kWh, PVWatts ${
+            d.pvwatts !== null ? Math.round(d.pvwatts).toLocaleString() : '—'
+          } kWh, spread ${Math.round(d.delta).toLocaleString()} kWh`;
           return (
             <g key={idx}>
-              {d.pvgis !== null ? (
+              {/* Lower segment: shared baseline (min of both providers) */}
+              <rect
+                x={barX}
+                y={lowerY}
+                width={barW}
+                height={lowerH}
+                fill="#f59e0b"
+                rx={2}
+              >
+                <title>{tooltip}</title>
+              </rect>
+              {/* Upper segment: spread (difference) */}
+              {d.delta > 0 ? (
                 <rect
-                  x={xPvgis}
-                  y={y(d.pvgis)}
+                  x={barX}
+                  y={deltaY}
                   width={barW}
-                  height={padT + chartH - y(d.pvgis)}
-                  fill="#fbbf24"
-                  rx={1}
+                  height={deltaH}
+                  fill="#fde68a"
+                  rx={2}
                 >
-                  <title>{`PVGIS ${d.label}: ${Math.round(d.pvgis).toLocaleString()} kWh`}</title>
+                  <title>{tooltip}</title>
                 </rect>
-              ) : null}
-              {d.pvwatts !== null ? (
-                <rect
-                  x={xPvwatts}
-                  y={y(d.pvwatts)}
-                  width={barW}
-                  height={padT + chartH - y(d.pvwatts)}
-                  fill="#f59e0b"
-                  rx={1}
-                >
-                  <title>{`PVWatts ${d.label}: ${Math.round(d.pvwatts).toLocaleString()} kWh`}</title>
-                </rect>
-              ) : null}
-              {d.avg !== null ? (
-                <line
-                  x1={xPvgis - 2}
-                  x2={xPvwatts + barW + 2}
-                  y1={y(d.avg)}
-                  y2={y(d.avg)}
-                  stroke="#18181b"
-                  strokeWidth={1.5}
-                >
-                  <title>{`Average ${d.label}: ${Math.round(d.avg).toLocaleString()} kWh`}</title>
-                </line>
               ) : null}
               <text
                 x={slotX + slot / 2}
@@ -128,9 +154,8 @@ export function MonthlyChart({ sources, consolidated }: MonthlyChartProps) {
         })}
       </svg>
       <div className="mt-2 flex flex-wrap gap-4 text-xs text-zinc-600">
-        <Legend color="#fbbf24" label="PVGIS" />
-        <Legend color="#f59e0b" label="PVWatts" />
-        <Legend color="#18181b" label="Average" />
+        <Legend color="#f59e0b" label="Both providers agree (min)" />
+        <Legend color="#fde68a" label="Provider spread (|PVGIS − PVWatts|)" />
       </div>
     </div>
   );
