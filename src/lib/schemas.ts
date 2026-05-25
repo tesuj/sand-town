@@ -125,6 +125,35 @@ export const ProspectRunStatus = z.enum([
 ]);
 export type ProspectRunStatus = z.infer<typeof ProspectRunStatus>;
 
+/* -------------------------------------------------------------------------- */
+/* Location resolution DTOs (PRD §FR-L3)                                       */
+/* -------------------------------------------------------------------------- */
+
+export const LocationResolveRequest = z.object({
+  query: z.string().min(1),
+  acceptLanguage: z.string().optional(),
+  limit: z.number().int().min(1).max(10).optional(),
+});
+export type LocationResolveRequest = z.infer<typeof LocationResolveRequest>;
+
+export const LocationResolveStatus = z.enum([
+  'success',
+  'coordinates',
+  'needs_location_choice',
+  'invalid_location',
+  'provider_error',
+  'failed',
+]);
+export type LocationResolveStatus = z.infer<typeof LocationResolveStatus>;
+
+export const LocationResolveResponse = z.object({
+  status: LocationResolveStatus,
+  location: ProspectLocation.nullable(),
+  candidates: z.array(ProspectLocation).optional(),
+  warnings: z.array(z.string()),
+});
+export type LocationResolveResponse = z.infer<typeof LocationResolveResponse>;
+
 export const ProspectRunResponse = z.object({
   status: ProspectRunStatus,
   location: ProspectLocation.nullable(),

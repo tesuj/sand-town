@@ -231,6 +231,94 @@ test('auto-angles: PVGIS optimal_pvgis badge appears next to tilt/azimuth', asyn
   await expect(page.getByText('184°').first()).toBeVisible();
 });
 
+test('resolve flow: Enter on address calls /api/location/resolve, drops map pin, does NOT call /api/prospect-runs', async ({
+  page,
+}) => {
+  let prospectCalled = 0;
+  await page.route('**/api/prospect-runs', async (route: Route) => {
+    prospectCalled += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(successResponse),
+    });
+  });
+  await page.route('**/api/location/resolve', async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'success',
+        location: {
+          lat: 38.7223,
+          lon: -9.1393,
+          inputText: 'Lisbon',
+          displayLabel: 'Lisbon, Portugal',
+          source: 'nominatim_search',
+          geocodingProvider: 'nominatim',
+          geocodingPlaceId: 1,
+          osmType: 'relation',
+          osmId: 5400890,
+        },
+        warnings: [],
+      }),
+    });
+  });
+
+  const input = page.getByRole('textbox', { name: 'Location' });
+  await input.fill('Lisbon');
+  await input.press('Enter');
+
+  await expect(input).toHaveValue('Lisbon, Portugal');
+  await expect(page.locator('.leaflet-marker-icon')).toBeVisible();
+  expect(prospectCalled).toBe(0);
+  await expect(page.getByText('Estimated annual production')).toHaveCount(0);
+});
+
+test('search button (magnifier) resolves without calculating', async ({ page }) => {
+  let prospectCalled = 0;
+  await page.route('**/api/prospect-runs', async (route: Route) => {
+    prospectCalled += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(successResponse),
+    });
+  });
+  await page.route('**/api/location/resolve', async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'success',
+        location: {
+          lat: 13.7563,
+          lon: 100.5018,
+          inputText: 'Bangkok',
+          displayLabel: 'Bangkok, Thailand',
+          source: 'nominatim_search',
+          geocodingProvider: 'nominatim',
+          geocodingPlaceId: 99,
+          osmType: 'relation',
+          osmId: 12345,
+        },
+        warnings: [],
+      }),
+    });
+  });
+
+  await page.getByRole('textbox', { name: 'Location' }).fill('Bangkok');
+  await page
+    .getByRole('button', { name: 'Search this address on the map' })
+    .click();
+
+  await expect(page.getByRole('textbox', { name: 'Location' })).toHaveValue(
+    'Bangkok, Thailand',
+  );
+  await expect(page.locator('.leaflet-marker-icon')).toBeVisible();
+  expect(prospectCalled).toBe(0);
+});
+
 test('manual override: editing tilt in Expert mode auto-unchecks autoAngles', async ({ page }) => {
   await mockApi(page, {
     ...successResponse,

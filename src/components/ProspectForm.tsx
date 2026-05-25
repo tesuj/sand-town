@@ -11,7 +11,11 @@ import {
   initialLocationState,
   locationReducer,
 } from '@/lib/locationState';
-import type { ProspectLocation, ProspectRunResponse } from '@/lib/schemas';
+import type {
+  LocationResolveResponse,
+  ProspectLocation,
+  ProspectRunResponse,
+} from '@/lib/schemas';
 
 // Leaflet hits window/document — load only on client.
 const MapView = dynamic(() => import('./MapView').then((m) => m.MapView), {
@@ -36,10 +40,91 @@ export function ProspectForm() {
   const [expert, setExpert] = useState<ExpertAssumptions>(DEFAULT_EXPERT);
   const [autoAngles, setAutoAngles] = useState(true);
   const [geolocating, setGeolocating] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [state, setState] = useState<FormState>({ kind: 'idle' });
 
   const calculating = state.kind === 'calculating';
-  const disabled = calculating || geolocating;
+  const disabled = calculating || geolocating || resolving;
+
+  /**
+   * Resolve free-text location → drop pin on map. Does NOT run Calculate.
+   * Bound to Enter key + magnifier button.
+   */
+  const onResolve = async () => {
+    const query = loc.value.trim();
+    if (!query) return;
+    setResolving(true);
+    setState({ kind: 'idle' });
+    try {
+      const response = await fetch('/api/location/resolve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      const text = await response.text();
+      let data: LocationResolveResponse;
+      try {
+        data = text ? (JSON.parse(text) as LocationResolveResponse) : (null as never);
+      } catch {
+        setState({
+          kind: 'error',
+          message: `Server returned an unexpected response (HTTP ${response.status}).`,
+        });
+        return;
+      }
+      if (!data) {
+        setState({
+          kind: 'error',
+          message: `Server returned an empty response (HTTP ${response.status}).`,
+        });
+        return;
+      }
+
+      if (data.status === 'needs_location_choice') {
+        setState({ kind: 'needs_choice', candidates: data.candidates ?? [] });
+        return;
+      }
+      if (data.status === 'invalid_location') {
+        setState({
+          kind: 'error',
+          message: data.warnings[0] ?? 'We could not find that location.',
+        });
+        return;
+      }
+      if (data.status === 'provider_error' || data.status === 'failed') {
+        setState({
+          kind: 'error',
+          message: data.warnings[0] ?? 'Geocoding failed. Please try again.',
+        });
+        return;
+      }
+      if (data.location) {
+        if (data.status === 'coordinates') {
+          dispatch({
+            type: 'confirm_coordinates',
+            lat: data.location.lat,
+            lon: data.location.lon,
+            source: data.location.source,
+          });
+        } else {
+          // status === 'success' — exactly one Nominatim hit.
+          dispatch({
+            type: 'confirm_geocoded',
+            lat: data.location.lat,
+            lon: data.location.lon,
+            label: data.location.displayLabel ?? `${data.location.lat}, ${data.location.lon}`,
+          });
+        }
+      }
+    } catch (err) {
+      setState({
+        kind: 'error',
+        message: err instanceof Error ? err.message : 'Network error',
+      });
+    } finally {
+      setResolving(false);
+    }
+  };
 
   /** When user edits tilt/azimuth manually, switch off auto so their values win. */
   const onExpertChange = (next: ExpertAssumptions) => {
@@ -126,6 +211,25 @@ export function ProspectForm() {
         });
         return;
       }
+      // success/partial: drop the resolved marker on the map so subsequent
+      // edits to Expert mode + a second Calculate use the picked coordinates.
+      if (data.location && (loc.dirty || !loc.confirmedLocation)) {
+        if (data.location.displayLabel) {
+          dispatch({
+            type: 'confirm_geocoded',
+            lat: data.location.lat,
+            lon: data.location.lon,
+            label: data.location.displayLabel,
+          });
+        } else {
+          dispatch({
+            type: 'confirm_coordinates',
+            lat: data.location.lat,
+            lon: data.location.lon,
+            source: data.location.source,
+          });
+        }
+      }
       setState({ kind: 'result', result: data });
     } catch (err) {
       setState({
@@ -182,10 +286,11 @@ export function ProspectForm() {
           value={loc.value}
           dirty={loc.dirty}
           onChange={(value) => dispatch({ type: 'edit', value })}
-          onSubmit={onCalculate}
+          onResolve={onResolve}
           onFindMyLocation={onFindMyLocation}
           disabled={disabled}
           geolocating={geolocating}
+          resolving={resolving}
         />
         <MapView
           lat={loc.confirmedLocation?.lat ?? null}

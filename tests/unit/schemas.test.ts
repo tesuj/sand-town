@@ -6,6 +6,8 @@ import {
   ConsolidatedEstimate,
   ProspectRunRequest,
   AnglesSource,
+  LocationResolveRequest,
+  LocationResolveResponse,
 } from '@/lib/schemas';
 
 describe('ProspectLocation', () => {
@@ -143,5 +145,33 @@ describe('AnglesSource enum', () => {
   });
   it('rejects unknown values', () => {
     expect(() => AnglesSource.parse('auto')).toThrow();
+  });
+});
+
+describe('LocationResolveRequest / Response', () => {
+  it('rejects empty query', () => {
+    expect(() => LocationResolveRequest.parse({ query: '' })).toThrow();
+  });
+  it('accepts minimal query', () => {
+    expect(LocationResolveRequest.parse({ query: 'Lisbon' })).toEqual({ query: 'Lisbon' });
+  });
+  it('caps limit to 1..10', () => {
+    expect(() => LocationResolveRequest.parse({ query: 'x', limit: 0 })).toThrow();
+    expect(() => LocationResolveRequest.parse({ query: 'x', limit: 11 })).toThrow();
+    expect(LocationResolveRequest.parse({ query: 'x', limit: 5 }).limit).toBe(5);
+  });
+  it('parses a success response payload', () => {
+    const parsed = LocationResolveResponse.parse({
+      status: 'success',
+      location: {
+        lat: 38.7,
+        lon: -9.1,
+        inputText: 'Lisbon',
+        displayLabel: 'Lisbon, Portugal',
+        source: 'nominatim_search',
+      },
+      warnings: [],
+    });
+    expect(parsed.status).toBe('success');
   });
 });
