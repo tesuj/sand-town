@@ -19,12 +19,34 @@ body {
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #ddd;
   background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .app-header h1 {
   margin: 0;
   font-size: 1.25rem;
   font-weight: 600;
+}
+
+.clear-btn {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+}
+
+.clear-btn:hover {
+  background: #f3f3f3;
+}
+
+.clear-btn:active {
+  background: #eaeaea;
 }
 
 .editor {
