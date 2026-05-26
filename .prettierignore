@@ -1,9 +1,0 @@
-.next
-node_modules
-coverage
-build
-out
-playwright-report
-test-results
-prisma/migrations
-pvprospect_PRD_v1_2_1.md
