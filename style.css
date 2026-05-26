@@ -98,6 +98,15 @@ body {
   line-height: 1.6;
 }
 
+.app-footer {
+  padding: 0.6rem 1rem;
+  border-top: 1px solid #ddd;
+  background: #fff;
+  color: #777;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
 @media (max-width: 600px) {
   .editor {
     flex-direction: column;
