@@ -1,30 +1,37 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Markdown Editor</title>
+  <title>Планировщик задач</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="app-header">
-    <h1>Markdown Editor</h1>
-  </header>
+  <main class="app">
+    <h1>Планировщик задач</h1>
 
-  <main class="editor">
-    <section class="pane pane-input" aria-label="Markdown input">
-      <textarea
-        id="markdown-input"
-        class="markdown-input"
-        placeholder="Type markdown here…"
-        aria-label="Markdown source"
-        spellcheck="false"
-      ></textarea>
-    </section>
+    <form id="add-form" class="add-form" autocomplete="off">
+      <input
+        id="new-task"
+        type="text"
+        placeholder="Новая задача…"
+        aria-label="Текст задачи"
+        required
+        maxlength="200"
+      >
+      <button type="submit">Добавить</button>
+    </form>
 
-    <section class="pane pane-preview" aria-label="Preview">
-      <div id="preview" class="preview" aria-live="polite"></div>
-    </section>
+    <ul id="task-list" class="task-list" aria-live="polite"></ul>
+
+    <p id="empty-state" class="empty-state" hidden>Задач пока нет.</p>
+
+    <footer class="footer">
+      <span id="counter"></span>
+      <button id="clear-done" type="button" hidden>Удалить выполненные</button>
+    </footer>
   </main>
+
+  <script src="app.js"></script>
 </body>
 </html>
