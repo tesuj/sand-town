@@ -31,6 +31,13 @@ body {
   font-weight: 600;
 }
 
+.clock {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  color: #555;
+}
+
 .clear-btn {
   font: inherit;
   padding: 0.4rem 0.9rem;
